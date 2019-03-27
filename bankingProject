@@ -1,0 +1,348 @@
+import sys
+import cx_Oracle
+
+#connection to db
+
+con = cx_Oracle.connect('system/oracle@localhost:1521/orcl')
+cur = con.cursor()              #cursor
+
+#Sign In()
+def sign_in_option(id):
+    print("---------------------------------------")
+    print("Enter the option number to operate options : ")
+    print("1. Update your address")
+    print("2. Deposit Money")
+    print("3. Withdraw Money")
+    print("4. print passbook")
+    print("5. Transfer Money")
+    print("6. Account Closure")
+    print("7. Logout")
+    opt = int(input())
+
+
+    # update address
+
+    if opt == 1:
+        new_addr = input(print("Enter new Address: "))
+        cur.execute("update user_data set address = :addr where login_id = :login_id",
+                    {"addr":new_addr, "login_id":id})
+        con.commit()
+        print("Address updated successfully!")
+        sign_in_option(id)
+    #---------------------------------------------------------------------------
+     # Credit code
+
+    elif opt ==2:
+        amt =int(input("Enter the amount to credit : "))
+        cur.execute("update user_data set balance = :amt + balance where login_id = :login_id",
+                    {'amt' : amt, 'login_id' : id})
+        cur.execute("select balance from user_data where login_id =:login_id",
+                    {'login_id' : id})
+        values = cur.fetchall()
+        pa = values[0]
+        da = pa[0]
+        cur.execute("insert into passbook values(:login_id, sysdate, :amt, 0, :da)",
+                    {'login_id' : id, 'amt' : amt, 'da': da})
+        con.commit()
+        print("Successfully credited amt ", amt)
+        print("Current balance is ", end='')
+
+        print(pa[0])
+        sign_in_option(id)
+    # ---------------------------------------------------------------------------
+
+    # Debit code
+    elif opt == 3:
+        amt = int(input("Enter the amount to debit : "))
+
+        #-----------
+        #Check if debit amount is lesser or greater than balance
+        cur.execute("select balance from user_data where login_id =:login_id",
+                    {'login_id': id})
+        values = cur.fetchall()
+        pa = values[0]
+        da = pa[0]
+
+        if da < amt:
+            print("Your balance is low")
+            print("Current balance is : ", da)
+            sign_in_option(id)
+        else :
+            pass
+        #---------
+
+        cur.execute("update user_data set balance = balance - :amt where login_id = :login_id",
+                    {'amt': amt, 'login_id': id})
+        cur.execute("select balance from user_data where login_id =:login_id",
+                    {'login_id': id})
+        values = cur.fetchall()
+        pa = values[0]
+        da = pa[0]
+        cur.execute("insert into passbook values(:login_id, sysdate, 0, :amt, :da)",
+                    {'login_id': id, 'amt': amt, 'da': da})
+        con.commit()
+        print("Successfully debited amt ", amt)
+        print("Current balance is : ", end='')
+
+        print(pa[0])
+        sign_in_option(id)
+
+    # ---------------------------------------------------------------------------
+    # Passbook code
+    elif opt == 4:
+        print("Enter the dates in the format dd/mm/yyyy")
+        print("Enter the date from : ")
+        from_d = input()
+        print("Enter the date to : ")
+        to_d = input()
+        try:
+            cur.execute("select to_char(dates, 'dd-mm-yyyy HH24:MI:SS'), credit, debit, balance from passbook where dates >= to_date( :from_d, 'dd/mm/yyyy') and dates <= to_date(:to_d, 'dd/mm/yyyy') and login_id = :login_id order by(dates) desc",
+                        {'from_d' : from_d,'to_d' : to_d, 'login_id':id })
+            cc = cur.fetchall()
+            for row in cc:
+                print(row)
+        except Exception:
+            print("Enter the correct dates")
+        sign_in_option(id)
+    #----------------------------------------------------------------------------
+
+    #Transfer money code
+    elif opt == 5:
+        print("Enter the login_id of the recepient")
+        rec_id = input()
+        print("Enter the money to transfer")
+        tsf_mn = int(input())
+        #----------------- Recepient update money
+
+        cur.execute("update user_data set balance = :tsf_mn + balance where login_id = :rec_id",
+                    {'tsf_mn' : tsf_mn, 'rec_id' : rec_id})
+        con.commit()
+        cur.execute("select balance from user_data where login_id =:login_id",
+                    {'login_id': rec_id})
+        values = cur.fetchall()
+        pa = values[0]
+        da = pa[0]
+        cur.execute("insert into passbook values(:login_id, sysdate, :tsf_mn, 0, :da)",
+                    {'login_id': rec_id, 'tsf_mn': tsf_mn, 'da': da})
+        con.commit()
+       #------------------
+        # ------------------ sender/current user update money
+
+        cur.execute("update user_data set balance = balance - :tsf_mn where login_id = :login_id",
+                    {'tsf_mn' : tsf_mn, 'login_id' : id})
+        con.commit()
+        cur.execute("select balance from user_data where login_id =:login_id",
+                    {'login_id': id})
+        values = cur.fetchall()
+        pa = values[0]
+        da = pa[0]
+        cur.execute("insert into passbook values(:login_id, sysdate, 0, :tsf_mn, :da)",
+                    {'login_id': id, 'tsf_mn': tsf_mn, 'da': da})
+        con.commit()
+        print("Money transferred successfully")
+        #-------------------
+
+    # ----------------------------------------------------------------------------
+
+
+    # account closure
+
+    elif opt ==6:
+        print("Are you sure you want to close your account")
+        print("1.Yes")
+        print("2. No")
+        submit = int(input())
+        if submit == 1:
+            cur.execute("delete from credentials where login_id = :login_id", {'login_id': id})
+            cur.execute("delete from passbook where login_id = :login_id",
+                        {'login_id' : id})
+            cur.execute("delete from user_data where login_id = :login_id",{'login_id' : id})
+            cur.execute("insert into admin_data values( :login_id, sysdate)", {'login_id': id})
+            con.commit()
+            print("Account deleted...")
+            options()
+        elif submit ==2 :
+            sign_in_option(id)
+
+
+    # ----------------------------------------------------------------------------
+    elif opt == 7:
+        print("Logging you out")
+        options()
+
+
+#--------------------------------------------------------------------------------------------------------
+#sign in code
+def signin():
+    con = cx_Oracle.connect('system/oracle@localhost:1521/orcl')
+    cur = con.cursor()  # cursor
+    try:
+        id = ""
+        id = input("Enter your login_id: ")
+        pss = int(input("Enter your password : "))
+        cur.execute("""Select password from credentials where login_id = :id""",{'id':id})
+        values = cur.fetchall()
+        pas = values[0]
+        da = pas[0]
+        for i in range(0,3 ):
+            if pss == pas[0]:
+                print("welcome ",id)
+                sign_in_option(id)
+                break
+            if i ==2:
+                print("Your account has been temporarily blocked")
+                cur.execute("delete from credentials where login_id = :login_id",{'login_id' : id})
+                cur.execute("insert into blocked_act values(:login_id, :password, sysdate)",
+                            {'login_id' : id, 'password' : da})
+                con.commit()
+                options()
+                break
+            else:
+                print("Wrong password")
+                print("you have ",2-i, " try left")
+                pss = int(input("Enter your password : "))
+        con.close()
+        options()
+
+    except IndexError:
+        print("---------------")
+        print("Login Id does not exist")
+        print("Sign up and join our system")
+        print("---------------------------")
+        options()
+
+
+#--------------------------------------------------------------------------------------------------------
+#SignUp()
+def signup():
+    user_id = 1
+    balance = 0
+    login_id = input("Enter login_id of your choice: ")
+    addr = input("Enter your Address: ")
+    balance = int(input("Enter balance: "))
+    type = input("Enter the type of Account saving/current: ")
+    print("Enter password")
+    print("Note: password should be of length 4 and numeric")
+    pswd = input()
+
+    try:
+        cur.execute("insert into user_data values (:user_id, :addr, :balance, :login_id, :type)"
+                ,{'user_id' : user_id, 'addr' : addr, 'balance' : balance, 'login_id' : login_id,'type' : type})
+
+    except cx_Oracle.IntegrityError:
+        print("Login_id already taken")
+        login_id = input("Enter new login_id: ")
+        cur.execute("insert into user_data values (:user_id, :addr, :balance, :login_id, :type)"
+                    , {'user_id': user_id, 'addr': addr, 'balance': balance, 'login_id': login_id, 'type': type})
+
+    cur.execute("insert into credentials values(:login_id, :password)"
+                ,{'login_id':login_id,'password':pswd})
+
+    cur.execute("select user_id from user_data where login_id = :login_id",{'login_id' : login_id})
+    id = cur.fetchall()
+    print("Your system generated user id is ",id[0])
+    con.commit()
+    cur.close()
+    con.close()
+    print("Welcome to our banking system")
+    options()
+
+#--------------------------------------------------------------------------------------------------------
+
+
+#admin login
+def admin_login():
+    con = cx_Oracle.connect('system/oracle@localhost:1521/orcl')
+    cur = con.cursor()  # cursor
+    try:
+        id = ""
+        print("Enter your admin_id: ")
+        id = input()
+        print("Enter your password : ")
+        pss = int(input())
+        cur.execute("""Select password from admin where admin_id = :id""",{'id':id})
+        values = cur.fetchall()
+        pas = values[0]
+        #---------------
+        if(pss == pas[0]):
+            print("welcome ",id, " Admin")
+            admin_sub_options()
+        #-----------------
+
+        else:
+            print("Wrong credentials")
+        con.close()
+        options()
+    except IndexError:
+        print("---------------")
+        print("Admin Id does not exist")
+        print("Sign up and join our system")
+        print("---------------------------")
+        options()
+
+#--------------------------------------------------------------------------------------------------------
+#admin_sub_options
+def admin_sub_options():
+    print("Enter the options to operate")
+    print("1. Closed accounts details")
+    print("2. Blocked Accounts ")
+    print("3. Logout")
+    opt = int(input())
+    #-----------------------
+    #retrieve closed accounts
+
+    if opt == 1:
+        cur.execute("Select login_id, to_char(dates, 'DD-MM-YYYY HH24:MI') from admin_data")
+        value = cur.fetchall()
+        for row in value:
+            print(row)
+        print()
+    # -----------------------
+    elif opt == 2:
+        print("Press 1 to show all blocked accounts detail")
+        print("Print 2 to sub menu")
+        ye = int(input())
+        if ye == 1:
+            cur.execute("select login_id, paswd, to_char(dates, 'dd-mm-yyyy HH24:MI') from blocked_act")
+            values = cur.fetchall()
+            print("Login_ID  Password  date_of_blocking")
+            for row in values:
+                print(row)
+            print("Enter the Login_id to unblock the id")
+            unblk_id = input()
+            cur.execute("select paswd from blocked_act where login_id = :login_id",
+                        {'login_id' : unblk_id})
+            password = cur.fetchall()
+            passwd = password[0]
+            passd = passwd[0]
+            cur.execute("insert into credentials values(:login_id, :pswd)",
+                        {'login_id' : unblk_id, 'pswd' : passd})
+            cur.execute("delete from blocked_act where login_id = :login_id",
+                        {'login_id' : unblk_id})
+            con.commit()
+        else:
+            admin_sub_options()
+    # -----------------------
+    elif opt == 3:
+        print("Logging you out")
+        options()
+    # -----------------------
+#--------------------------------------------------------------------------------------------------------
+# options
+def options():
+    id = ""
+    print("1 Sign UP")
+    print("2 Sign IN")
+    print("3 Admin Login")
+    print("4 EXIT")
+    inp1 = int(input("Enter your choice"))
+    if inp1 == 1:
+        signup()
+    elif inp1 == 2:
+        signin()
+    elif inp1 == 3:
+        admin_login()
+    else:
+        sys.exit()
+
+options()
